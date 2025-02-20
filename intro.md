@@ -1,10 +1,52 @@
-# Welcome to the Nested Sampling Book
+# Introduction
 
-Complement to the excellent `blackjax` library, and following its pattern of having a sampling book to demonstrate algorithm usage, we introduce the _nested sampling book_, aiming to provide physics motivated use cases focussing on the nested sampling algorithm.
+Nested Sampling is a particle Monte Carlo algorithm that has seen widespread usage in the physical sciences. Its popular implementation has often been done in bespoke packages, which hinders wider adoption and generic comparison.
+
+The work of {cite}`yallup2025nested` presented the atomic components of the Nested Sampling paradigm in the style of the popular `jax` based sampling library `blackjax`. This has a number of benefits, including:
+- Compatibility of the atomic components with modern python PPLs such as [numpyro](https://num.pyro.ai/en/latest/index.html#)
+- Clear separation of design choices from core algorithm, allowing advanced experimentation with composable components
+- Unique compatibility with natively vectorized likelihood code.
+
+Following the example of the main `blackjax` library of having a separate pedagogical sampling book, we introduce in these pages the _nested sampling book_, aiming to provide physics motivated use cases focussing on the nested sampling algorithm.
+
+# Installation
+
+For now the core library code is available as a fork of blackjax on the handley-lab github (https://github.com/handley-lab/blackjax), specifically the `proposal` branch.
 
 ```bash
 pip install git+https://github.com/handley-lab/blackjax@proposal
 ```
+
+All other non-standard dependencies in the examples contained in this book are listed in the notebooks themselves.
+
+# Citation
+Usage of the core algorithm should cite both the `blackjax` repo {cite}`cabezas2024blackjax`
+
+```latex
+@misc{cabezas2024blackjax,
+      title={BlackJAX: Composable {B}ayesian inference in {JAX}},
+      author={Alberto Cabezas and Adrien Corenflos and Junpeng Lao and Rémi Louf},
+      year={2024},
+      eprint={2402.10797},
+      archivePrefix={arXiv},
+      primaryClass={cs.MS}
+}
+```
+
+as well as the pending implementation paper {cite}`yallup2025nested`
+
+```latex
+@misc{yallup2025nested,
+    author = {David Yallup and Will Handley},
+    title = {Nested Slice Sampling},
+    year={2025},
+    eprint={2502.XXXX},
+    archivePrefix={arXiv},
+    primaryClass={stat.ML},
+}
+```
+
+Usage of any of the physics examples should follow and include any further relevant citations detailed in the example notebooks.
 
 ```{tableofcontents}
 ```
