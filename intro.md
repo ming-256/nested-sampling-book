@@ -1,6 +1,6 @@
 # Introduction
 
-Nested Sampling is a particle Monte Carlo algorithm that has seen widespread usage in the physical sciences. Its popular implementation has often been done in bespoke packages, which hinders wider adoption and generic comparison.
+Nested Sampling is a particle Monte Carlo algorithm that has seen widespread usage in the physical sciences. Its popular implementations have often been performed in bespoke packages, which hinders wider adoption and generic comparison.
 
 The work of {cite}`yallup2025nested` presented the atomic components of the Nested Sampling paradigm in the style of the popular `jax` based sampling library `blackjax`. This has a number of benefits, including:
 - Compatibility of the atomic components with modern python PPLs such as [numpyro](https://num.pyro.ai/en/latest/index.html#)
@@ -9,7 +9,7 @@ The work of {cite}`yallup2025nested` presented the atomic components of the Nest
 
 Following the example of the main `blackjax` library of having a separate pedagogical sampling book, we introduce in these pages the _nested sampling book_, aiming to provide physics motivated use cases focussing on the nested sampling algorithm.
 
-# Installation
+## Installation
 
 For now the core library code is available as a fork of blackjax on the handley-lab github (https://github.com/handley-lab/blackjax), specifically the `proposal` branch.
 
@@ -19,7 +19,7 @@ pip install git+https://github.com/handley-lab/blackjax@proposal
 
 All other non-standard dependencies in the examples contained in this book are listed in the notebooks themselves.
 
-# Citation
+## Citation
 Usage of the core algorithm should cite both the `blackjax` repo {cite}`cabezas2024blackjax`
 
 ```latex
@@ -47,6 +47,10 @@ as well as the pending implementation paper {cite}`yallup2025nested`
 ```
 
 Usage of any of the physics examples should follow and include any further relevant citations detailed in the example notebooks.
+
+## Contribution
+
+Contributions are most welcome! Please see the [contribution guidelines](https://github.com/handley-lab/nested-sampling-book/blob/main/CONTRIBUTING.md) for more information. Or start by raising an issue on the book repository https://github.com/handley-lab/nested-sampling-book
 
 ```{tableofcontents}
 ```
