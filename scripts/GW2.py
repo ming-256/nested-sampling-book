@@ -166,10 +166,12 @@ def logprior_fn(x):
 def loglikelihood_fn(x):
     params = dict(zip([param.name for param in parameters], x.T))
     params["eta"] = params["q"] / (1 + params["q"]) ** 2
-    if jnp.isclose(params["eta"], 0.25):
-        params["eta"] = 0.249995
-        print("The eta of the reference parameter is close to 0.25")
-        print(f"The eta is adjusted to {params['eta']}")
+    params["eta"] = jax.lax.cond(
+        jnp.isclose(params["eta"], 0.25),
+        lambda _: 0.249995,
+        lambda _: params["eta"],
+        operand=None
+    )
     params["gmst"] = gmst
     waveform_sky = waveform(frequencies, params)
     align_time = jnp.exp(-1j * 2 * jnp.pi * frequencies * (epoch + params["t_c"]))
