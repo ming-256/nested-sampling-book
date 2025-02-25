@@ -74,6 +74,7 @@ def logUniformPrior(x: float, min: float, max: float) -> float:
     max: float
         The maximum value of the parameter.
     """
+    
     return stats.uniform.logpdf(x, min, max-min)
 
 def logSinPrior(x):
@@ -118,15 +119,17 @@ label = 'GW2'
 gps = 1126259462.4
 fmin = 20.0
 fmax = 1024.0
-duration = 4
+duration = 8
+post_trigger_duration = 2
+end_time = gps + post_trigger_duration
+start_time = end_time - duration
 roll_off = 0.4
 tukey_alpha = 2 * roll_off / duration
-tukey_alpha = 0.2
-post_trigger_duration=2
+psd_pad = 16
 
 detectors = [H1, L1]
-H1.load_data(gps, 2, 2, fmin, fmax, psd_pad=16, tukey_alpha=tukey_alpha)
-L1.load_data(gps, 2, 2, fmin, fmax, psd_pad=16, tukey_alpha=tukey_alpha)
+H1.load_data(gps, duration - post_trigger_duration, post_trigger_duration, fmin, fmax, psd_pad=psd_pad, tukey_alpha=tukey_alpha)
+L1.load_data(gps, duration - post_trigger_duration, post_trigger_duration, fmin, fmax, psd_pad=psd_pad, tukey_alpha=tukey_alpha)
 
 waveform = RippleIMRPhenomD(f_ref=fmin)
 frequencies = H1.frequencies
@@ -162,7 +165,11 @@ def logprior_fn(x):
 @jax.jit
 def loglikelihood_fn(x):
     params = dict(zip([param.name for param in parameters], x.T))
-    params["eta"] = 0.15874815
+    params["eta"] = params["q"] / (1 + params["q"]) ** 2
+    if jnp.isclose(params["eta"], 0.25):
+        params["eta"] = 0.249995
+        print("The eta of the reference parameter is close to 0.25")
+        print(f"The eta is adjusted to {params['eta']}")
     params["gmst"] = gmst
     waveform_sky = waveform(frequencies, params)
     align_time = jnp.exp(-1j * 2 * jnp.pi * frequencies * (epoch + params["t_c"]))
@@ -177,7 +184,7 @@ def loglikelihood_fn(x):
 # | Define the Nested Sampling algorithm
 n_dims = len(columns)
 n_live = 2000
-n_delete = 500
+n_delete = 800
 num_mcmc_steps = n_dims * 5
 
 # | Initialize the Nested Sampling algorithm
@@ -212,6 +219,10 @@ rng_key, init_key = jax.random.split(rng_key, 2)
 init_keys = jax.random.split(init_key, len(parameters))
 
 initial_particles = jnp.vstack([sample_prior(param, key, n_live) for param, key in zip(parameters, init_keys)]).T
+# q_index = columns.index("q")
+# initial_particles = initial_particles.at[:, q_index].set(
+#    initial_particles[:, q_index] / (1 + initial_particles[:, q_index]) ** 2
+#)
 state = nested_sampler.init(initial_particles, loglikelihood_fn)
 
 # | Run Nested Sampling
