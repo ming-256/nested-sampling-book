@@ -221,10 +221,6 @@ rng_key, init_key = jax.random.split(rng_key, 2)
 init_keys = jax.random.split(init_key, len(parameters))
 
 initial_particles = jnp.vstack([sample_prior(param, key, n_live) for param, key in zip(parameters, init_keys)]).T
-# q_index = columns.index("q")
-# initial_particles = initial_particles.at[:, q_index].set(
-#    initial_particles[:, q_index] / (1 + initial_particles[:, q_index]) ** 2
-#)
 state = nested_sampler.init(initial_particles, loglikelihood_fn)
 
 # | Run Nested Sampling

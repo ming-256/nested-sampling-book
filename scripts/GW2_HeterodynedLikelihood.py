@@ -29,8 +29,7 @@ import numpy as np
 import tqdm
 from anesthetic import NestedSamples
 from astropy.time import Time
-from jimgw.single_event.detector import H1, L1
-from jimgw.single_event.likelihood import original_likelihood as likelihood_function
+from jimgw.single_event.detector import Detector, H1, L1
 from jimgw.single_event.likelihood import original_relative_binning_likelihood as relative_binning_likelihood_function
 from jimgw.single_event.waveform import RippleIMRPhenomD
 
@@ -164,18 +163,20 @@ def logprior_fn(x):
 
 
 
-# SETUP HETERODYNING
+# | SETUP HETERODYNING
+# |
+# |
+# |
 from jaxtyping import Array, Float
 import numpy.typing as npt
 from scipy.interpolate import interp1d
-n_bins = 100
 
 def max_phase_diff(
     f: npt.NDArray[np.floating],
     f_low: float,
     f_high: float,
     chi: Float = 1.0,
-):
+    ):
     """
     Compute the maximum phase difference between the frequencies in the array.
 
@@ -201,38 +202,6 @@ def max_phase_diff(
     f_star = np.repeat(f_low, len(gamma))
     f_star[gamma >= 0] = f_high
     return 2 * np.pi * chi * np.sum((f / f_star) ** gamma * np.sign(gamma), axis=1)
-
-def make_binning_scheme(
-    freqs: npt.NDArray[np.floating], n_bins: int, chi: float = 1
-) -> tuple[Float[Array, " n_bins+1"], Float[Array, " n_bins"]]:
-    """
-    Make a binning scheme based on the maximum phase difference between the
-    frequencies in the array.
-
-    Parameters
-    ----------
-    freqs: Float[Array, "dim"]
-        Array of frequencies to be binned.
-    n_bins: int
-        Number of bins to be used.
-    chi: float = 1
-        The chi parameter used in the phase difference calculation.
-
-    Returns
-    -------
-    f_bins: Float[Array, "n_bins+1"]
-        The bin edges.
-    f_bins_center: Float[Array, "n_bins"]
-        The bin centers.
-    """
-
-    phase_diff_array = max_phase_diff(freqs, freqs[0], freqs[-1], chi=chi)
-    bin_f = interp1d(phase_diff_array, freqs)
-    f_bins = np.array([])
-    for i in np.linspace(phase_diff_array[0], phase_diff_array[-1], n_bins + 1):
-        f_bins = np.append(f_bins, bin_f(i))
-    f_bins_center = (f_bins[:-1] + f_bins[1:]) / 2
-    return jnp.array(f_bins), jnp.array(f_bins_center)
 
 def compute_coefficients(data, h_ref, psd, freqs, f_bins, f_bins_center):
     A0_array = []
@@ -271,139 +240,176 @@ def compute_coefficients(data, h_ref, psd, freqs, f_bins, f_bins_center):
     B0_array = jnp.array(B0_array)
     B1_array = jnp.array(B1_array)
     return A0_array, A1_array, B0_array, B1_array
-    
-def evaluate(params: dict[str, Float]) -> Float:
-    h_sky = waveform(frequencies, params)
-    # Get the grid of the relative binning scheme (contains the final endpoint)
-    # and the center points
-    freq_grid, freq_grid_center = make_binning_scheme(
-        np.array(frequencies), n_bins
-        )
-    freq_grid_low = freq_grid[:-1]
-    params["gmst"] = gmst
-    waveform_low_ref = {}
-    waveform_center_ref = {}
-    A0_array = {}
-    A1_array = {}
-    B0_array = {}
-    B1_array = {}
-    # Get frequency masks to be applied, for both original
-    # and heterodyne frequency grid
-    h_amp = jnp.sum(
-        jnp.array([jnp.abs(h_sky[key]) for key in h_sky.keys()]), axis=0
-    )
-    f_valid = frequencies[jnp.where(h_amp > 0)[0]]
-    f_max = jnp.max(f_valid)
-    f_min = jnp.min(f_valid)
 
-    mask_heterodyne_grid = jnp.where((freq_grid <= f_max) & (freq_grid >= f_min))[0]
-    mask_heterodyne_low = jnp.where(
-        (freq_grid_low <= f_max) & (freq_grid_low >= f_min)
-    )[0]
-    mask_heterodyne_center = jnp.where(
-        (freq_grid_center <= f_max) & (freq_grid_center >= f_min)
-    )[0]
-    freq_grid = freq_grid[mask_heterodyne_grid]
-    freq_grid_low = freq_grid_low[mask_heterodyne_low]
-    freq_grid_center = freq_grid_center[mask_heterodyne_center]
+class HeterodynedLikelihood():
+    def __init__(self, detectors: list[Detector], waveform, frequencies, epoch, gmst):
+        self.detectors = detectors
+        self.waveform = waveform
+        self.frequencies = frequencies
+        self.epoch = epoch
+        self.gmst = gmst
+        self.n_bins = 100
+        self.A0_array = {}
+        self.A1_array = {}
+        self.B0_array = {}
+        self.B1_array = {}
+        self.waveform_low_ref = {}
+        self.waveform_center_ref = {}
 
-    # Assure frequency grids have same length
-    if len(freq_grid_low) > len(freq_grid_center):
-        freq_grid_low = freq_grid_low[: len(freq_grid_center)]
+    def make_binning_scheme(
+        self, freqs: npt.NDArray[np.floating], n_bins: int, chi: float = 1
+    ) -> tuple[Float[Array, " n_bins+1"], Float[Array, " n_bins"]]:
+        """
+        Make a binning scheme based on the maximum phase difference between the
+        frequencies in the array.
 
-    h_sky_low = waveform(freq_grid_low, params)
-    h_sky_center = waveform(freq_grid_center, params)
-    # Get phase shifts to align time of coalescence
-    align_time = jnp.exp(
-        -1j
-        * 2
-        * jnp.pi
-        * frequencies
-        * (epoch + params["t_c"])
-    )
-    align_time_low = jnp.exp(
-        -1j
-        * 2
-        * jnp.pi
-        * freq_grid_low
-        * (epoch + params["t_c"])
-    )
-    align_time_center = jnp.exp(
-        -1j
-        * 2
-        * jnp.pi
-        * freq_grid_center
-        * (epoch + params["t_c"])
-    )
+        Parameters
+        ----------
+        freqs: Float[Array, "dim"]
+            Array of frequencies to be binned.
+        n_bins: int
+            Number of bins to be used.
+        chi: float = 1
+            The chi parameter used in the phase difference calculation.
 
-    for detector in detectors:
-        waveform_ref = (
-            detector.fd_response(frequencies, h_sky, params)
-            * align_time
-        )
-        waveform_low_ref[detector.name] = (
-            detector.fd_response(freq_grid_low, h_sky_low, params)
-            * align_time_low
-        )
-        waveform_center_ref[detector.name] = (
-            detector.fd_response(
-                freq_grid_center, h_sky_center, params
+        Returns
+        -------
+        f_bins: Float[Array, "n_bins+1"]
+            The bin edges.
+        f_bins_center: Float[Array, "n_bins"]
+            The bin centers.
+        """
+
+        phase_diff_array = max_phase_diff(freqs, freqs[0], freqs[-1], chi=chi)
+        bin_f = interp1d(phase_diff_array, freqs)
+        f_bins = np.array([])
+        for i in np.linspace(phase_diff_array[0], phase_diff_array[-1], n_bins + 1):
+            f_bins = np.append(f_bins, bin_f(i))
+        f_bins_center = (f_bins[:-1] + f_bins[1:]) / 2
+        return jnp.array(f_bins), jnp.array(f_bins_center)
+        
+    def reference_state(self, params):
+        h_sky = waveform(self.frequencies, params)
+        # Get the grid of the relative binning scheme (contains the final endpoint)
+        # and the center points
+        freq_grid, self.freq_grid_center = self.make_binning_scheme(
+            np.array(self.frequencies), self.n_bins
             )
-            * align_time_center
+        self.freq_grid_low = freq_grid[:-1]
+        params["gmst"] = self.gmst
+        if jnp.isclose(params["eta"], 0.25):
+            params["eta"] = 0.249995
+        # Get frequency masks to be applied, for both original
+        # and heterodyne frequency grid
+        h_amp = jnp.sum(
+            jnp.array([jnp.abs(h_sky[key]) for key in h_sky.keys()]), axis=0
         )
-        A0, A1, B0, B1 = compute_coefficients(
-            detector.data,
-            waveform_ref,
-            detector.psd,
-            frequencies,
-            freq_grid,
-            freq_grid_center,
+        f_valid = self.frequencies[jnp.where(h_amp > 0)[0]]
+        f_max = jnp.max(f_valid)
+        f_min = jnp.min(f_valid)
+
+        mask_heterodyne_grid = jnp.where((freq_grid <= f_max) & (freq_grid >= f_min))[0]
+        mask_heterodyne_low = jnp.where(
+            (self.freq_grid_low <= f_max) & (self.freq_grid_low >= f_min)
+        )[0]
+        mask_heterodyne_center = jnp.where(
+            (self.freq_grid_center <= f_max) & (self.freq_grid_center >= f_min)
+        )[0]
+        freq_grid = freq_grid[mask_heterodyne_grid]
+        self.freq_grid_low = self.freq_grid_low[mask_heterodyne_low]
+        self.freq_grid_center = self.freq_grid_center[mask_heterodyne_center]
+
+        # Assure frequency grids have same length
+        if len(self.freq_grid_low) > len(self.freq_grid_center):
+            self.freq_grid_low = self.freq_grid_low[: len(self.freq_grid_center)]
+
+        h_sky_low = self.waveform(self.freq_grid_low, params)
+        h_sky_center = self.waveform(self.freq_grid_center, params)
+        # Get phase shifts to align time of coalescence
+        align_time = jnp.exp(
+            -1j
+            * 2
+            * jnp.pi
+            * self.frequencies
+            * (self.epoch + params["t_c"])
         )
-    A0_array[detector.name] = A0[mask_heterodyne_center]
-    A1_array[detector.name] = A1[mask_heterodyne_center]
-    B0_array[detector.name] = B0[mask_heterodyne_center]
-    B1_array[detector.name] = B1[mask_heterodyne_center]
-    frequencies_low = freq_grid_low
-    frequencies_center = freq_grid_center
-    waveform_sky_low = waveform(frequencies_low, params)
-    waveform_sky_center = waveform(frequencies_center, params)
-    align_time_low = jnp.exp(
-            -1j * 2 * jnp.pi * frequencies_low * (epoch + params["t_c"])
+        align_time_low = jnp.exp(
+            -1j
+            * 2
+            * jnp.pi
+            * self.freq_grid_low
+            * (self.epoch + params["t_c"])
         )
-    align_time_center = jnp.exp(
-            -1j * 2 * jnp.pi * frequencies_center * (epoch + params["t_c"])
+        align_time_center = jnp.exp(
+            -1j
+            * 2
+            * jnp.pi
+            * self.freq_grid_center
+            * (self.epoch + params["t_c"])
         )
 
-    frequencies_low = freq_grid_low
-    frequencies_center = freq_grid_center
-    params["gmst"] = gmst
-    # evaluate the waveforms as usual
-    waveform_sky_low = waveform(frequencies_low, params)
-    waveform_sky_center = waveform(frequencies_center, params)
-    align_time_low = jnp.exp(
-        -1j * 2 * jnp.pi * frequencies_low * (epoch + params["t_c"])
-    )
-    align_time_center = jnp.exp(
-        -1j * 2 * jnp.pi * frequencies_center * (epoch + params["t_c"])
-    )
-    return relative_binning_likelihood_function(
-        params,
-        A0_array,
-        A1_array,
-        B0_array,
-        B1_array,
-        waveform_sky_low,
-        waveform_sky_center,
-        waveform_low_ref,
-        waveform_center_ref,
-        detectors,
-        frequencies_low,
-        frequencies_center,
-        align_time_low,
-        align_time_center
-    )
+        for detector in self.detectors:
+            waveform_ref = (
+                detector.fd_response(self.frequencies, h_sky, params)
+                * align_time
+            )
+            self.waveform_low_ref[detector.name] = (
+                detector.fd_response(self.freq_grid_low, h_sky_low, params)
+                * align_time_low
+            )
+            self.waveform_center_ref[detector.name] = (
+                detector.fd_response(
+                    self.freq_grid_center, h_sky_center, params
+                )
+                * align_time_center
+            )
+            A0, A1, B0, B1 = compute_coefficients(
+                detector.data,
+                waveform_ref,
+                detector.psd,
+                self.frequencies,
+                freq_grid,
+                self.freq_grid_center,
+            )
+            self.A0_array[detector.name] = A0[mask_heterodyne_center]
+            self.A1_array[detector.name] = A1[mask_heterodyne_center]
+            self.B0_array[detector.name] = B0[mask_heterodyne_center]
+            self.B1_array[detector.name] = B1[mask_heterodyne_center]
 
+    def evaluate(self, params: dict[str, Float]) -> Float:
+        frequencies_low = self.freq_grid_low
+        frequencies_center = self.freq_grid_center
+        params["gmst"] = self.gmst
+        # evaluate the waveforms as usual
+        waveform_sky_low = self.waveform(frequencies_low, params)
+        waveform_sky_center = self.waveform(frequencies_center, params)
+        align_time_low = jnp.exp(
+            -1j * 2 * jnp.pi * frequencies_low * (self.epoch + params["t_c"])
+        )
+        align_time_center = jnp.exp(
+            -1j * 2 * jnp.pi * frequencies_center * (self.epoch + params["t_c"])
+        )
+        return relative_binning_likelihood_function(
+            params,
+            self.A0_array,
+            self.A1_array,
+            self.B0_array,
+            self.B1_array,
+            waveform_sky_low,
+            waveform_sky_center,
+            self.waveform_low_ref,
+            self.waveform_center_ref,
+            self.detectors,
+            frequencies_low,
+            frequencies_center,
+            align_time_low,
+            align_time_center
+        )
+# |
+# |
+# |
 
+likelihood_function = HeterodynedLikelihood(detectors, waveform, frequencies, epoch, gmst)
 
 # | Define the likelihood function
 @jax.jit
@@ -416,7 +422,7 @@ def loglikelihood_fn(x):
         lambda _: params["eta"],
         operand=None
     )
-    return evaluate(params)
+    return likelihood_function.evaluate(params)
 
 # | Define the Nested Sampling algorithm
 n_dims = len(columns)
@@ -456,11 +462,8 @@ rng_key, init_key = jax.random.split(rng_key, 2)
 init_keys = jax.random.split(init_key, len(parameters))
 
 initial_particles = jnp.vstack([sample_prior(param, key, n_live) for param, key in zip(parameters, init_keys)]).T
-# q_index = columns.index("q")
-# initial_particles = initial_particles.at[:, q_index].set(
-#    initial_particles[:, q_index] / (1 + initial_particles[:, q_index]) ** 2
-#)
 state = nested_sampler.init(initial_particles, loglikelihood_fn)
+likelihood_function.reference_state(initial_particles)
 
 # | Run Nested Sampling
 dead = []
